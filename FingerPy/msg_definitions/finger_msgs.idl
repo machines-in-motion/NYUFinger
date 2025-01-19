@@ -1,0 +1,27 @@
+module FingerMsgs {
+    struct FingerCmd {
+        double tau_ff[3];
+        double q[3];
+        double dq[3];
+        double kp[3];
+        double kv[3];
+    };
+
+    struct FingerState {
+        double q[3];
+        double dq[3];
+        double tau[3];
+    };
+
+    struct FingerImage {
+        sequence<octet> data;
+        string timestamp;
+    };
+
+    typedef double Array7[7];
+
+    struct FingerObjects {
+        sequence<string> names;
+        sequence<Array7> poses;
+    };
+};

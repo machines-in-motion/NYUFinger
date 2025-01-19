@@ -1,0 +1,3 @@
+
+messages:
+	@cd scripts && ./make_dds_msgs.sh 
