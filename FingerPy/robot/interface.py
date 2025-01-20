@@ -146,11 +146,42 @@ class UDPCycloneDDSBridge:
     def forwardDDSCmds2UDP(self):
         cmd_msg = get_last_msg(self.cmd_reader, FingerCmd)
         if cmd_msg is not None:
-            self.udp_cmd[self.q_des_idx] = cmd_msg.q_des
-            self.udp_cmd[self.dq_des_idx] = cmd_msg.dq_des
+            self.udp_cmd[self.q_des_idx] = cmd_msg.q
+            self.udp_cmd[self.dq_des_idx] = cmd_msg.dq
             self.udp_cmd[self.kp_idx] = cmd_msg.kp
             self.udp_cmd[self.kd_idx] = cmd_msg.kv
             tau_ff = np.clip(cmd_msg.tau_ff, -self.cfg.max_torque, self.cfg.max_torque)
             current = (np.array(tau_ff)/self.cfg.gear_ratio)/self.cfg.current2Torque
             self.udp_cmd[self.tau_ff_idx] = current
-            self.udp_bridge.sendCommand(self.teensy_cmd)
+            self.udp_bridge.sendCommand(self.udp_cmd.tolist())
+
+class NYUFingerRobot:
+    def __init__(self, robot_name):
+        self.robot_name = robot_name
+        self.state_topic_name = f'{robot_name}_robot_state'
+        self.cmd_topic_name = f'{robot_name}_robot_cmd'
+        self.participant = DomainParticipant()
+        self.cmd_topic = Topic(self.participant,self.cmd_topic_name, FingerCmd)
+        self.state_topic = Topic(self.participant,self.state_topic_name, FingerState)
+        self.state_reader = DataReader(self.participant, self.state_topic)
+        self.cmd_writer = DataWriter(self.participant, self.cmd_topic)
+        self.state = None
+
+    def setCommand(self, torque):
+        assert torque.shape == (3,), 'The shape of the torque array should be (3,)'
+        cmd = FingerCmd(tau_ff=torque.tolist(),
+                        q = np.zeros_like(torque).tolist(),
+                        dq = np.zeros_like(torque).tolist(),
+                        kp = np.zeros_like(torque).tolist(),
+                        kv = np.zeros_like(torque).tolist())
+        self.cmd_writer.write(cmd)
+
+    def getRobotState(self):
+        state_msg = get_last_msg(self.state_reader, FingerState)
+        if state_msg is not None:
+            q = np.array(state_msg.q)
+            dq = np.array(state_msg.dq)
+            tau = np.array(state_msg.tau)
+            return dict (q=q, dq=dq, tau=tau)
+        else:
+            return None
