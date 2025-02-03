@@ -5,7 +5,7 @@
     "workspaceFolder": "/home/NYUFinger",
     "service": "fingerpy",
     "remoteUser": "root", 
-    // "postCreateCommand": "cd /home/NYUFinger && pip install -e .",
+    "postCreateCommand": "cd /home/NYUFinger && pip install -e .",
     "customizations": {
       "vscode": {
         "extensions": [

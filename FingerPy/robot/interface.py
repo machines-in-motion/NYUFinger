@@ -155,33 +155,81 @@ class UDPCycloneDDSBridge:
             self.udp_cmd[self.tau_ff_idx] = current
             self.udp_bridge.sendCommand(self.udp_cmd.tolist())
 
-class NYUFingerRobot:
-    def __init__(self, robot_name):
-        self.robot_name = robot_name
-        self.state_topic_name = f'{robot_name}_robot_state'
-        self.cmd_topic_name = f'{robot_name}_robot_cmd'
-        self.participant = DomainParticipant()
-        self.cmd_topic = Topic(self.participant,self.cmd_topic_name, FingerCmd)
-        self.state_topic = Topic(self.participant,self.state_topic_name, FingerState)
-        self.state_reader = DataReader(self.participant, self.state_topic)
-        self.cmd_writer = DataWriter(self.participant, self.cmd_topic)
-        self.state = None
+# class NYUFinger:
+#     def __init__(self, robot_name):
+#         self.robot_name = robot_name
+#         self.state_topic_name = f'{robot_name}_robot_state'
+#         self.cmd_topic_name = f'{robot_name}_robot_cmd'
+#         self.participant = DomainParticipant()
+#         self.cmd_topic = Topic(self.participant,self.cmd_topic_name, FingerCmd)
+#         self.state_topic = Topic(self.participant,self.state_topic_name, FingerState)
+#         self.state_reader = DataReader(self.participant, self.state_topic)
+#         self.cmd_writer = DataWriter(self.participant, self.cmd_topic)
+#         self.state = None
 
-    def setCommand(self, torque):
-        assert torque.shape == (3,), 'The shape of the torque array should be (3,)'
-        cmd = FingerCmd(tau_ff=torque.tolist(),
-                        q = np.zeros_like(torque).tolist(),
-                        dq = np.zeros_like(torque).tolist(),
-                        kp = np.zeros_like(torque).tolist(),
-                        kv = np.zeros_like(torque).tolist())
-        self.cmd_writer.write(cmd)
+#     def setCommand(self, torque):
+#         assert torque.shape == (3,), 'The shape of the torque array should be (3,)'
+#         cmd = FingerCmd(tau_ff=torque.tolist(),
+#                         q = np.zeros_like(torque).tolist(),
+#                         dq = np.zeros_like(torque).tolist(),
+#                         kp = np.zeros_like(torque).tolist(),
+#                         kv = np.zeros_like(torque).tolist())
+#         self.cmd_writer.write(cmd)
 
-    def getRobotState(self):
-        state_msg = get_last_msg(self.state_reader, FingerState)
-        if state_msg is not None:
-            q = np.array(state_msg.q)
-            dq = np.array(state_msg.dq)
-            tau = np.array(state_msg.tau)
-            return dict (q=q, dq=dq, tau=tau)
+#     def getRobotState(self):
+#         state_msg = get_last_msg(self.state_reader, FingerState)
+#         if state_msg is not None:
+#             q = np.array(state_msg.q)
+#             dq = np.array(state_msg.dq)
+#             tau = np.array(state_msg.tau)
+#             return dict (q=q, dq=dq, tau=tau)
+#         else:
+#             return None
+        
+class NYUFinger:
+    def __init__(self):
+        self.config = RobotConfig
+        self.config.DoF = 3
+        self.config.robot_name = 'finger1'
+        self.config.current2Torque = 1.0
+        self.config.gear_ratio = 9
+        self.config.max_torque = 20.0
+        self.config.robot_ip  = '192.168.123.10'
+        self.config.robot_port = 5000
+        self.config.local_port = 5000
+        self.udp_bridge = TeensyUDPBridge(self.config)
+        self.q_offset = np.zeros(3)
+        self.q_raw = np.zeros(3)
+    
+    def get_state(self):
+        stamp, teensy_state = self.udp_bridge.getLatestState()
+        if teensy_state is not None:
+            state = np.array(teensy_state)
+            q = (state[:3]/self.config.gear_ratio)
+            dq = (state[3:6]/self.config.gear_ratio)
+            tau = (state[6:]*self.config.current2Torque * self.config.gear_ratio).tolist()
+            self.q_raw = q.copy()
+            self.dq_raw = dq.copy()
+            return q-self.q_offset, dq
         else:
-            return None
+            return None, None
+    
+    def send_joint_torque(self, joint_torques):
+        assert np.array(joint_torques).shape == (3,), 'Wrong torque shape! The torque commnand should be a numpy array with shape (3,)'
+        udp_cmd = np.zeros(15)
+        tau_ff = np.clip(joint_torques, -self.config.max_torque, self.config.max_torque)
+        current = (np.array(tau_ff)/self.config.gear_ratio)/self.config.current2Torque
+        udp_cmd[:3] = current
+        self.udp_bridge.sendCommand(udp_cmd.tolist())
+
+    def reset_sensors(self, q0=np.zeros(3)):
+        assert q0.shape==(3,), 'Wrong q0 shape! The shape should be (3,)'  
+        for i in range(100):
+            q, dq = self.get_state()
+            time.sleep(0.01)
+        if q is None:
+            raise Exception('Could not reset read the states from the robot! Make sure the robot is powered on and connected.')
+        # q = q_raw - q_offset -> q_offset = q_raw-q0
+        self.q_offset[:] = self.q_raw - q0
+        print(f'Successfully reset the sensor values to: {q0}')
+
